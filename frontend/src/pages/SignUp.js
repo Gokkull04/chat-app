@@ -1,7 +1,38 @@
-import React from 'react';
-import { Link } from 'react-router-dom';
+import React, { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 
 function SignupPage() {
+  const [name, setName] = useState('');
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
+  const navigate = useNavigate();
+
+  const handleSignup = async (e) => {
+    e.preventDefault();
+
+    const user = { name, username, password };
+
+    try {
+      const response = await fetch('http://localhost:5000/signup', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(user),
+      });
+
+      if (response.ok) {
+        alert('Signup successful!');
+        navigate('/'); // Redirect to the home page
+      } else {
+        alert('Signup failed. Please try again.');
+      }
+    } catch (error) {
+      console.error('Error:', error);
+      alert('An error occurred. Please try again.');
+    }
+  };
+
   return (
     <div className="min-h-screen flex flex-col bg-gradient-to-r from-blue-50 to-blue-100">
       {/* Navbar */}
@@ -18,12 +49,14 @@ function SignupPage() {
       <main className="flex-grow p-8 flex items-center justify-center">
         <div className="max-w-sm w-full bg-white p-8 rounded-lg shadow-lg">
           <h1 className="text-2xl font-bold text-blue-700 mb-6 text-center">Sign Up</h1>
-          <form className="space-y-4">
+          <form className="space-y-4" onSubmit={handleSignup}>
             <div>
               <label htmlFor="name" className="block text-gray-700">Name</label>
               <input 
                 type="text" 
                 id="name" 
+                value={name}
+                onChange={(e) => setName(e.target.value)}
                 placeholder="Enter your name" 
                 className="w-full px-4 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-400"
               />
@@ -33,6 +66,8 @@ function SignupPage() {
               <input 
                 type="text" 
                 id="username" 
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
                 placeholder="Enter your username" 
                 className="w-full px-4 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-400"
               />
@@ -42,6 +77,8 @@ function SignupPage() {
               <input 
                 type="password" 
                 id="password" 
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
                 placeholder="Enter your password" 
                 className="w-full px-4 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-400"
               />
@@ -54,7 +91,7 @@ function SignupPage() {
             </button>
           </form>
           <p className="mt-4 text-center text-gray-600">
-            Already have an account? <Link to="/login" className="text-blue-600 hover:text-blue-800">Login</Link>
+            Already have an account? <a href="/login" className="text-blue-600 hover:text-blue-800">Login</a>
           </p>
         </div>
       </main>
