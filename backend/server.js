@@ -2,14 +2,23 @@ const express = require('express');
 const mongoose = require('mongoose');
 const bcrypt = require('bcryptjs');
 const bodyParser = require('body-parser');
-require('dotenv').config(); // Load environment variables
+const cors = require('cors');
+const dotenv = require('dotenv');
+const { Server } = require('socket.io');
+const http = require('http');
+
+dotenv.config(); // Load environment variables
 
 // Initialize Express
 const app = express();
+const server = http.createServer(app);
+const io = new Server(server);
+
+app.use(cors()); // Allow requests from your React app
 app.use(bodyParser.json());
 
 // MongoDB Connection
-const mongoURI = process.env.MONGO_URI; // Use the environment variable
+const mongoURI = process.env.MONGO_URI;
 
 mongoose.connect(mongoURI, {
   useNewUrlParser: true,
@@ -32,11 +41,28 @@ const userSchema = new mongoose.Schema({
 // User Model
 const User = mongoose.model('User', userSchema);
 
+// Chat Schema
+const chatSchema = new mongoose.Schema({
+  sender: { type: String, required: true },
+  receiver: { type: String, required: true },
+  message: { type: String, required: true },
+  timestamp: { type: Date, default: Date.now },
+});
+
+// Chat Model
+const Chat = mongoose.model('Chat', chatSchema);
+
 // Signup Route
 app.post('/signup', async (req, res) => {
   const { name, username, password } = req.body;
 
   try {
+    // Check if the username already exists
+    const existingUser = await User.findOne({ username });
+    if (existingUser) {
+      return res.status(400).json({ message: 'Username already exists' });
+    }
+
     // Hash the password
     const hashedPassword = await bcrypt.hash(password, 10);
 
@@ -46,7 +72,7 @@ app.post('/signup', async (req, res) => {
       username,
       password: hashedPassword,
     });
-    
+
     // Save the user to the database
     await newUser.save();
     res.status(201).json({ message: 'User registered successfully' });
@@ -76,14 +102,88 @@ app.post('/login', async (req, res) => {
     }
 
     // If the password matches, send a success response
-    res.status(200).json({ message: 'Login successful' });
+    res.status(200).json({ message: 'Login successful', username: user.username, redirectUrl: '/chat' });
   } catch (error) {
     console.error(error);
     res.status(500).json({ message: 'Error logging in' });
   }
 });
 
+app.get('/search-user', async (req, res) => {
+  const { username } = req.query;
+
+  try {
+    const user = await User.findOne({ username });
+
+    if (user) {
+      res.status(200).json({ exists: true, name: user.name });
+    } else {
+      res.status(404).json({ exists: false });
+    }
+  } catch (error) {
+    console.error('Error searching for user:', error);
+    res.status(500).json({ message: 'Error searching for user' });
+  }
+});
+
+// Send Message Route
+app.post('/send-message', async (req, res) => {
+  const { sender, receiver, message } = req.body;
+
+  try {
+    const receiverExists = await User.findOne({ username: receiver });
+
+    if (!receiverExists) {
+      return res.status(400).json({ message: 'Receiver not found' });
+    }
+
+    const newChat = new Chat({ sender, receiver, message });
+    await newChat.save();
+
+    // Notify the receiver via Socket.IO
+    io.to(receiver).emit('receive-message', { sender, message });
+
+    res.status(201).json({ message: 'Message sent' });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: 'Error sending message' });
+  }
+});
+
+
+
+// Get Chats for a User Route
+app.get('/chats', async (req, res) => {
+  const { username } = req.query;
+
+  try {
+    const chats = await Chat.find({
+      $or: [{ sender: username }, { receiver: username }],
+    }).sort('timestamp');
+
+    res.status(200).json(chats);
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: 'Error fetching chats' });
+  }
+});
+
+// Socket.IO for Real-Time Messaging
+io.on('connection', (socket) => {
+  console.log('User connected:', socket.id);
+
+  socket.on('join', (username) => {
+    socket.join(username);
+    console.log(`${username} joined room`);
+  });
+
+  socket.on('disconnect', () => {
+    console.log('User disconnected:', socket.id);
+  });
+});
+
 // Start the Server
-app.listen(5000, () => {
-  console.log('Server is running on port 5000');
+const PORT = process.env.PORT || 5000;
+server.listen(PORT, () => {
+  console.log(`Server is running on port ${PORT}`);
 });

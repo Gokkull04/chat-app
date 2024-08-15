@@ -1,7 +1,48 @@
-import React from 'react';
-import { Link } from 'react-router-dom';
+import React, { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 
 function Login() {
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
+  const [errorMessage, setErrorMessage] = useState('');
+  const [successMessage, setSuccessMessage] = useState(''); // State for success message
+  const navigate = useNavigate();
+
+  const handleLogin = async (e) => {
+    e.preventDefault();
+
+    const user = { username, password };
+
+    try {
+      const response = await fetch('http://localhost:5000/login', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(user),
+      });
+
+      const data = await response.json();
+
+      if (response.ok) {
+        setSuccessMessage('Login successful! Redirecting to chat page...'); // Set success message
+        setErrorMessage(''); // Clear error message if any
+
+        // Redirect after a short delay to show the success message
+        setTimeout(() => {
+          navigate(data.redirectUrl); // Redirect to chat page
+        }, 2000);
+      } else {
+        setErrorMessage(data.message); // Display error message
+        setSuccessMessage(''); // Clear success message if any
+      }
+    } catch (error) {
+      console.error('Error:', error);
+      setErrorMessage('An error occurred. Please try again.');
+      setSuccessMessage(''); // Clear success message if any
+    }
+  };
+
   return (
     <div className="min-h-screen flex flex-col bg-gradient-to-r from-blue-50 to-blue-100">
       {/* Navbar */}
@@ -9,6 +50,7 @@ function Login() {
         <div className="text-2xl font-bold text-blue-600">Chaat</div>
         <div className="flex items-center space-x-4">
           <a href="/" className="text-blue-600 hover:text-blue-800">Home</a>
+          <p href="/login" className="text-blue-600 hover:text-blue-800 font-semibold">Login</p>
         </div>
       </nav>
 
@@ -16,12 +58,23 @@ function Login() {
       <main className="flex-grow p-8 flex items-center justify-center">
         <div className="max-w-sm w-full bg-white p-8 rounded-lg shadow-lg">
           <h1 className="text-2xl font-bold text-blue-700 mb-6 text-center">Login</h1>
-          <form className="space-y-4">
+          
+          {errorMessage && (
+            <p className="text-red-500 text-center mb-4">{errorMessage}</p>
+          )}
+
+          {successMessage && (
+            <p className="text-green-500 text-center mb-4">{successMessage}</p>
+          )}
+          
+          <form className="space-y-4" onSubmit={handleLogin}>
             <div>
               <label htmlFor="username" className="block text-gray-700">Username</label>
               <input 
                 type="text" 
                 id="username" 
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
                 placeholder="Enter your username" 
                 className="w-full px-4 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-400"
               />
@@ -31,6 +84,8 @@ function Login() {
               <input 
                 type="password" 
                 id="password" 
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
                 placeholder="Enter your password" 
                 className="w-full px-4 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-400"
               />
@@ -43,7 +98,7 @@ function Login() {
             </button>
           </form>
           <p className="mt-4 text-center text-gray-600">
-            Not have an account? <Link to="/sign-up" className="text-blue-600 hover:text-blue-800">Sign up</Link>
+            Not have an account? <a href="/signup" className="text-blue-600 hover:text-blue-800">Sign up</a>
           </p>
         </div>
       </main>
