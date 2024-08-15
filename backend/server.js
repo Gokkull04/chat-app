@@ -49,8 +49,8 @@ const chatSchema = new mongoose.Schema({
   timestamp: { type: Date, default: Date.now },
 });
 
-// Chat Model
 const Chat = mongoose.model('Chat', chatSchema);
+
 
 // Signup Route
 app.post('/signup', async (req, res) => {
@@ -123,6 +123,11 @@ app.get('/search-user', async (req, res) => {
 // Send Message Route
 app.post('/send-message', async (req, res) => {
   const { sender, receiver, message } = req.body;
+  console.log('Received data:', { sender, receiver, message });
+
+  if (!sender || !receiver || !message) {
+    return res.status(400).json({ message: 'Sender, receiver, and message are required' });
+  }
 
   try {
     const receiverExists = await User.findOne({ username: receiver });
@@ -143,6 +148,7 @@ app.post('/send-message', async (req, res) => {
     res.status(500).json({ message: 'Error sending message' });
   }
 });
+
 
 // Get Chats for a User Route
 app.get('/chats', async (req, res) => {
@@ -167,6 +173,10 @@ io.on('connection', (socket) => {
   socket.on('join', (username) => {
     socket.join(username);
     console.log(`${username} joined room`);
+  });
+
+  socket.on('send-message', ({ receiver, message }) => {
+    io.to(receiver).emit('receive-message', { sender: socket.username, message });
   });
 
   socket.on('disconnect', () => {
