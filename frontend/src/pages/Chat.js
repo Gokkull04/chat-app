@@ -1,153 +1,103 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useEffect, useState } from 'react';
 import io from 'socket.io-client';
 import axios from 'axios';
 
-const ChatPage = ({ username }) => {
+const ChatPage = ({ currentUser }) => {
+  const [socket, setSocket] = useState(null);
   const [message, setMessage] = useState('');
   const [chats, setChats] = useState([]);
-  const [receiver, setReceiver] = useState(''); // Store receiver username
-  const [search, setSearch] = useState('');
-  const [userExists, setUserExists] = useState(false); // Track if the user exists
-  const socketRef = useRef();
+  const [selectedUser, setSelectedUser] = useState(null);
 
   useEffect(() => {
-    // Connect to the server with Socket.IO
-    socketRef.current = io('http://localhost:5000');
+    const newSocket = io('http://localhost:5000');
+    setSocket(newSocket);
 
-    // Join the room with the logged-in username
-    socketRef.current.emit('join', username);
+    if (currentUser) {
+      newSocket.emit('join', currentUser.username);
+    }
 
-    // Listen for incoming messages
-    socketRef.current.on('receive-message', (data) => {
-      setChats((prevChats) => [...prevChats, { sender: data.sender, text: data.message }]);
-      alert(`New message from ${data.sender}: ${data.message}`);
+    if (selectedUser) {
+      fetchChatHistory(selectedUser);
+    }
+
+    newSocket.on('receive-message', (message) => {
+      setChats((prevChats) => [...prevChats, message]);
     });
 
-    // Fetch existing chats from the server
-    axios
-      .get('http://localhost:5000/chats', { params: { username } })
-      .then((response) => {
-        setChats(response.data);
-      })
-      .catch((error) => {
-        console.error('Error fetching chats:', error);
+    return () => newSocket.disconnect();
+  }, [currentUser, selectedUser]);
+
+  const fetchChatHistory = async (username) => {
+    try {
+      const response = await axios.get('http://localhost:5000/chats', {
+        params: { username: currentUser.username },
       });
-
-    return () => {
-      socketRef.current.disconnect(); // Disconnect when component unmounts
-    };
-  }, [username]);
-
-  const handleSearch = () => {
-    if (search.trim()) {
-      axios
-        .get('http://localhost:5000/search-user', { params: { username: search } })
-        .then((response) => {
-          if (response.data.exists) {
-            setReceiver(search);
-            setUserExists(true);
-          } else {
-            alert('User not found');
-            setUserExists(false);
-          }
-        })
-        .catch((error) => {
-          console.error('Error searching for user:', error);
-        });
+      setChats(response.data);
+    } catch (error) {
+      console.error('Error fetching chat history:', error);
     }
   };
 
-  const handleSendMessage = () => {
-    if (message.trim() && userExists) {
-      const newChat = { sender: username, receiver, message };
+  const handleSendMessage = async () => {
+    if (!message || !selectedUser) return;
 
-      // Send the message to the server
-      axios
-        .post('http://localhost:5000/send-message', newChat)
-        .then(() => {
-          setChats([...chats, { sender: username, text: message }]);
-          setMessage('');
-        })
-        .catch((error) => {
-          console.error('Error sending message:', error);
-        });
+    try {
+      await axios.post('http://localhost:5000/send-message', {
+        sender: currentUser.username,
+        receiver: selectedUser.username,
+        message,
+      });
+
+      setChats((prevChats) => [
+        ...prevChats,
+        { sender: currentUser.username, receiver: selectedUser.username, message },
+      ]);
+      setMessage('');
+    } catch (error) {
+      console.error('Error sending message:', error);
     }
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-r from-blue-50 to-blue-100 flex">
-      
-      {/* Sidebar */}
-      <div className="w-1/4 bg-white p-4">
-        <h2 className="text-xl font-semibold mb-4">Chats</h2>
-        <input
-          type="text"
-          placeholder="Search by username..."
-          className="w-full p-2 mb-4 border border-gray-300 rounded-md"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-        />
-        <button
-          onClick={handleSearch}
-          className="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 w-full"
-        >
-          Search
-        </button>
-        {/* Display searched user if found */}
-        {userExists && (
-          <ul className="mt-4 space-y-2">
-            <li
-              className="p-2 bg-gray-100 rounded-md cursor-pointer"
-              onClick={() => setReceiver(search)}
-            >
-              {search}
-            </li>
-          </ul>
-        )}
-      </div>
-      
-      {/* Divider */}
-      <div className="w-0.5 bg-gray-300"></div>
-      
-      {/* Chat Container */}
-      <div className="flex-1 flex flex-col">
-        <div className="bg-white p-4 shadow-md">
-          <h2 className="text-xl font-semibold text-gray-700">{receiver || 'Select a contact'}</h2>
+    <div className="flex h-screen">
+      {/* Sidebar with user list */}
+      <div className="w-1/4 bg-gray-200 p-4">
+        <h3 className="text-lg font-semibold mb-4">Your Chats</h3>
+        <div className="space-y-4">
+          {/* Display a list of users you have chatted with */}
+          {/* On click, setSelectedUser(user) to load chat */}
         </div>
-        <div className="flex-1 p-4 bg-white overflow-y-auto space-y-4">
+      </div>
+
+      {/* Chat window */}
+      <div className="w-3/4 p-4 flex flex-col">
+        <h3 className="text-lg font-semibold mb-4">
+          Chat with {selectedUser ? selectedUser.name : '...'}
+        </h3>
+        <div className="flex-1 overflow-y-auto p-4 bg-gray-100 rounded-lg">
           {chats.map((chat, index) => (
             <div
               key={index}
-              className={`flex ${
-                chat.sender === username ? 'justify-end' : 'justify-start'
+              className={`max-w-xs p-3 rounded-lg mb-2 ${
+                chat.sender === currentUser.username ? 'bg-green-200 ml-auto' : 'bg-white'
               }`}
             >
-              <div
-                className={`max-w-xs p-2 rounded-lg ${
-                  chat.sender === username
-                    ? 'bg-blue-500 text-white'
-                    : 'bg-gray-200 text-gray-800'
-                }`}
-              >
-                {chat.text}
-              </div>
+              <p className="text-sm">
+                <strong>{chat.sender}:</strong> {chat.message}
+              </p>
             </div>
           ))}
         </div>
-        
-        {/* Message Input */}
-        <div className="bg-gray-100 p-4 flex items-center space-x-2">
+        <div className="mt-4 flex">
           <textarea
-            className="flex-1 p-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-400"
-            rows="1"
-            placeholder="Type your message..."
             value={message}
             onChange={(e) => setMessage(e.target.value)}
+            className="flex-1 border border-gray-300 rounded-lg p-2"
+            placeholder="Type a message..."
           />
           <button
             onClick={handleSendMessage}
-            className="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
-            disabled={!userExists}
+            className="ml-2 bg-green-500 text-white p-2 rounded-lg"
           >
             Send
           </button>
@@ -155,6 +105,6 @@ const ChatPage = ({ username }) => {
       </div>
     </div>
   );
-}
+};
 
 export default ChatPage;

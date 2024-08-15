@@ -57,23 +57,19 @@ app.post('/signup', async (req, res) => {
   const { name, username, password } = req.body;
 
   try {
-    // Check if the username already exists
     const existingUser = await User.findOne({ username });
     if (existingUser) {
       return res.status(400).json({ message: 'Username already exists' });
     }
 
-    // Hash the password
     const hashedPassword = await bcrypt.hash(password, 10);
 
-    // Create a new user
     const newUser = new User({
       name,
       username,
       password: hashedPassword,
     });
 
-    // Save the user to the database
     await newUser.save();
     res.status(201).json({ message: 'User registered successfully' });
   } catch (error) {
@@ -87,21 +83,18 @@ app.post('/login', async (req, res) => {
   const { username, password } = req.body;
 
   try {
-    // Find the user by username
     const user = await User.findOne({ username });
 
     if (!user) {
       return res.status(400).json({ message: 'Invalid username or password' });
     }
 
-    // Compare the entered password with the stored hashed password
     const isMatch = await bcrypt.compare(password, user.password);
 
     if (!isMatch) {
       return res.status(400).json({ message: 'Invalid username or password' });
     }
 
-    // If the password matches, send a success response
     res.status(200).json({ message: 'Login successful', username: user.username, redirectUrl: '/chat' });
   } catch (error) {
     console.error(error);
@@ -109,6 +102,7 @@ app.post('/login', async (req, res) => {
   }
 });
 
+// Search User Route
 app.get('/search-user', async (req, res) => {
   const { username } = req.query;
 
@@ -138,19 +132,17 @@ app.post('/send-message', async (req, res) => {
     }
 
     const newChat = new Chat({ sender, receiver, message });
-    await newChat.save();
+    await newChat.save(); // Save the message to the database
 
     // Notify the receiver via Socket.IO
     io.to(receiver).emit('receive-message', { sender, message });
 
-    res.status(201).json({ message: 'Message sent' });
+    res.status(201).json({ message: 'Message sent and stored in DB' });
   } catch (error) {
     console.error(error);
     res.status(500).json({ message: 'Error sending message' });
   }
 });
-
-
 
 // Get Chats for a User Route
 app.get('/chats', async (req, res) => {
