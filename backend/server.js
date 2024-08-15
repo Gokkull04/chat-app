@@ -6,6 +6,7 @@ const cors = require('cors');
 const dotenv = require('dotenv');
 const { Server } = require('socket.io');
 const http = require('http');
+const jwt = require('jsonwebtoken');
 
 dotenv.config(); // Load environment variables
 
@@ -31,6 +32,9 @@ db.once('open', () => {
   console.log('Connected to MongoDB');
 });
 
+// JWT Secret
+const jwtSecret = process.env.JWT_SECRET || 'your_jwt_secret_key';
+
 // User Schema
 const userSchema = new mongoose.Schema({
   name: { type: String, required: true },
@@ -50,7 +54,6 @@ const chatSchema = new mongoose.Schema({
 });
 
 const Chat = mongoose.model('Chat', chatSchema);
-
 
 // Signup Route
 app.post('/signup', async (req, res) => {
@@ -95,22 +98,44 @@ app.post('/login', async (req, res) => {
       return res.status(400).json({ message: 'Invalid username or password' });
     }
 
-    res.status(200).json({ message: 'Login successful', username: user.username, redirectUrl: '/chat' });
+    // Generate JWT Token
+    const token = jwt.sign({ username: user.username }, jwtSecret, { expiresIn: '1h' });
+
+    res.status(200).json({ message: 'Login successful', token });
   } catch (error) {
     console.error(error);
     res.status(500).json({ message: 'Error logging in' });
   }
 });
 
+// Middleware to authenticate token
+const authenticateToken = (req, res, next) => {
+  const token = req.headers['authorization'];
+
+  if (!token) {
+    return res.status(401).json({ message: 'Access denied, no token provided' });
+  }
+
+  jwt.verify(token, jwtSecret, (err, user) => {
+    if (err) {
+      return res.status(403).json({ message: 'Invalid token' });
+    }
+    req.user = user;
+    next();
+  });
+};
+
 // Search User Route
-app.get('/search-user', async (req, res) => {
+app.get('/search-user', authenticateToken, async (req, res) => {
   const { username } = req.query;
 
   try {
     const user = await User.findOne({ username });
 
-    if (user) {
+    if (user && user.username !== req.user.username) {
       res.status(200).json({ exists: true, name: user.name });
+    } else if (user && user.username === req.user.username) {
+      res.status(200).json({ exists: false, message: 'You cannot search yourself' });
     } else {
       res.status(404).json({ exists: false });
     }
@@ -121,12 +146,12 @@ app.get('/search-user', async (req, res) => {
 });
 
 // Send Message Route
-app.post('/send-message', async (req, res) => {
-  const { sender, receiver, message } = req.body;
-  console.log('Received data:', { sender, receiver, message });
+app.post('/send-message', authenticateToken, async (req, res) => {
+  const { receiver, message } = req.body;
+  const sender = req.user.username;
 
-  if (!sender || !receiver || !message) {
-    return res.status(400).json({ message: 'Sender, receiver, and message are required' });
+  if (!receiver || !message) {
+    return res.status(400).json({ message: 'Receiver and message are required' });
   }
 
   try {
@@ -149,10 +174,9 @@ app.post('/send-message', async (req, res) => {
   }
 });
 
-
 // Get Chats for a User Route
-app.get('/chats', async (req, res) => {
-  const { username } = req.query;
+app.get('/chats', authenticateToken, async (req, res) => {
+  const username = req.user.username;
 
   try {
     const chats = await Chat.find({
