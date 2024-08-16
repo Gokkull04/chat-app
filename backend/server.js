@@ -4,16 +4,12 @@ const bcrypt = require('bcryptjs');
 const bodyParser = require('body-parser');
 const cors = require('cors');
 const dotenv = require('dotenv');
-const { Server } = require('socket.io');
-const http = require('http');
 const jwt = require('jsonwebtoken');
 
 dotenv.config(); // Load environment variables
 
 // Initialize Express
 const app = express();
-const server = http.createServer(app);
-const io = new Server(server);
 
 app.use(cors()); // Allow requests from your React app
 app.use(bodyParser.json());
@@ -164,9 +160,6 @@ app.post('/send-message', authenticateToken, async (req, res) => {
     const newChat = new Chat({ sender, receiver, message });
     await newChat.save(); // Save the message to the database
 
-    // Notify the receiver via Socket.IO
-    io.to(receiver).emit('receive-message', { sender, message });
-
     res.status(201).json({ message: 'Message sent and stored in DB' });
   } catch (error) {
     console.error(error);
@@ -190,26 +183,8 @@ app.get('/chats', authenticateToken, async (req, res) => {
   }
 });
 
-// Socket.IO for Real-Time Messaging
-io.on('connection', (socket) => {
-  console.log('User connected:', socket.id);
-
-  socket.on('join', (username) => {
-    socket.join(username);
-    console.log(`${username} joined room`);
-  });
-
-  socket.on('send-message', ({ receiver, message }) => {
-    io.to(receiver).emit('receive-message', { sender: socket.username, message });
-  });
-
-  socket.on('disconnect', () => {
-    console.log('User disconnected:', socket.id);
-  });
-});
-
 // Start the Server
 const PORT = process.env.PORT || 5000;
-server.listen(PORT, () => {
+app.listen(PORT, () => {
   console.log(`Server is running on port ${PORT}`);
 });
