@@ -94,15 +94,13 @@ app.post('/login', async (req, res) => {
       return res.status(400).json({ message: 'Invalid username or password' });
     }
 
-    // Generate JWT Token
-    const token = jwt.sign({ username: user.username }, jwtSecret, { expiresIn: '1h' });
-
-    res.status(200).json({ message: 'Login successful', token });
+    res.status(200).json({ message: 'Login successful', username: user.username, redirectUrl: '/chat' });
   } catch (error) {
     console.error(error);
     res.status(500).json({ message: 'Error logging in' });
   }
 });
+
 
 // Middleware to authenticate token
 const authenticateToken = (req, res, next) => {
