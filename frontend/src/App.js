@@ -5,6 +5,7 @@ import Home from './pages/Home';
 import SignUp from './pages/SignUp';
 import Chat from "./pages/Chat";
 
+
 function App() {
   return (
     <Router>

@@ -4,7 +4,8 @@ const bcrypt = require('bcryptjs');
 const bodyParser = require('body-parser');
 const cors = require('cors');
 const dotenv = require('dotenv');
-const jwt = require('jsonwebtoken');
+const { Server } = require('socket.io');
+const http = require('http');
 
 dotenv.config(); // Load environment variables
 
@@ -28,9 +29,6 @@ db.once('open', () => {
   console.log('Connected to MongoDB');
 });
 
-// JWT Secret
-const jwtSecret = process.env.JWT_SECRET || 'your_jwt_secret_key';
-
 // User Schema
 const userSchema = new mongoose.Schema({
   name: { type: String, required: true },
@@ -38,7 +36,6 @@ const userSchema = new mongoose.Schema({
   password: { type: String, required: true },
 });
 
-// User Model
 const User = mongoose.model('User', userSchema);
 
 // Chat Schema
@@ -94,6 +91,7 @@ app.post('/login', async (req, res) => {
       return res.status(400).json({ message: 'Invalid username or password' });
     }
 
+    // If login is successful, return a success message and username
     res.status(200).json({ message: 'Login successful', username: user.username, redirectUrl: '/chat' });
   } catch (error) {
     console.error(error);
@@ -101,37 +99,18 @@ app.post('/login', async (req, res) => {
   }
 });
 
-
-// Middleware to authenticate token
-const authenticateToken = (req, res, next) => {
-  const token = req.headers['authorization'];
-
-  if (!token) {
-    return res.status(401).json({ message: 'Access denied, no token provided' });
-  }
-
-  jwt.verify(token, jwtSecret, (err, user) => {
-    if (err) {
-      return res.status(403).json({ message: 'Invalid token' });
-    }
-    req.user = user;
-    next();
-  });
-};
-
 // Search User Route
-app.get('/search-user', authenticateToken, async (req, res) => {
-  const { username } = req.query;
+app.get('/search-user', async (req, res) => {
+  const { username, currentUser } = req.query;
 
   try {
+    // Find the user by username, but exclude the current logged-in user
     const user = await User.findOne({ username });
 
-    if (user && user.username !== req.user.username) {
+    if (user && user.username !== currentUser) {
       res.status(200).json({ exists: true, name: user.name });
-    } else if (user && user.username === req.user.username) {
-      res.status(200).json({ exists: false, message: 'You cannot search yourself' });
     } else {
-      res.status(404).json({ exists: false });
+      res.status(404).json({ exists: false, message: 'No results' });
     }
   } catch (error) {
     console.error('Error searching for user:', error);
@@ -140,12 +119,14 @@ app.get('/search-user', authenticateToken, async (req, res) => {
 });
 
 // Send Message Route
-app.post('/send-message', authenticateToken, async (req, res) => {
-  const { receiver, message } = req.body;
-  const sender = req.user.username;
+app.post('/send-message', async (req, res) => {
+  const { sender, receiver, message } = req.body;
 
-  if (!receiver || !message) {
-    return res.status(400).json({ message: 'Receiver and message are required' });
+  // Log incoming data
+  console.log('Send message data:', { sender, receiver, message });
+
+  if (!sender || !receiver || !message) {
+    return res.status(400).json({ message: 'Sender, receiver, and message are required' });
   }
 
   try {
@@ -160,14 +141,16 @@ app.post('/send-message', authenticateToken, async (req, res) => {
 
     res.status(201).json({ message: 'Message sent and stored in DB' });
   } catch (error) {
-    console.error(error);
+    console.error('Error sending message:', error);
     res.status(500).json({ message: 'Error sending message' });
   }
 });
 
+
+
 // Get Chats for a User Route
-app.get('/chats', authenticateToken, async (req, res) => {
-  const username = req.user.username;
+app.get('/chats', async (req, res) => {
+  const { username } = req.query;
 
   try {
     const chats = await Chat.find({
@@ -181,8 +164,39 @@ app.get('/chats', authenticateToken, async (req, res) => {
   }
 });
 
+// Socket.IO Setup
+const server = http.createServer(app);
+const io = new Server(server, {
+  cors: {
+    origin: "http://localhost:3000", // Replace with your frontend URL
+    methods: ["GET", "POST"]
+  }
+});
+
+io.on('connection', (socket) => {
+  console.log('a user connected');
+
+  socket.on('join', (username) => {
+    console.log(`${username} joined`);
+    socket.join(username);
+  });
+
+  socket.on('send-message', (data) => {
+    io.to(data.receiver).emit('receive-message', {
+      sender: data.sender,
+      message: data.message,
+      timestamp: data.timestamp, // Include timestamp
+    });
+  });
+
+  socket.on('disconnect', () => {
+    console.log('user disconnected');
+  });
+});
+
+
 // Start the Server
 const PORT = process.env.PORT || 5000;
-app.listen(PORT, () => {
+server.listen(PORT, () => {
   console.log(`Server is running on port ${PORT}`);
 });
