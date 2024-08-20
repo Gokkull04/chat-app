@@ -4,8 +4,8 @@ const bcrypt = require('bcryptjs');
 const bodyParser = require('body-parser');
 const cors = require('cors');
 const dotenv = require('dotenv');
-const { Server } = require('socket.io');
 const http = require('http');
+const WebSocket = require('ws');
 
 dotenv.config(); // Load environment variables
 
@@ -45,7 +45,6 @@ const chatSchema = new mongoose.Schema({
   message: { type: String, required: true },
   timestamp: { type: Date, default: Date.now },
 });
-
 const Chat = mongoose.model('Chat', chatSchema);
 
 // Signup Route
@@ -91,7 +90,6 @@ app.post('/login', async (req, res) => {
       return res.status(400).json({ message: 'Invalid username or password' });
     }
 
-    // If login is successful, return a success message and username
     res.status(200).json({ message: 'Login successful', username: user.username, redirectUrl: '/chat' });
   } catch (error) {
     console.error(error);
@@ -102,18 +100,14 @@ app.post('/login', async (req, res) => {
 // Search User Route
 app.get('/search-user', async (req, res) => {
   const { username, currentUser } = req.query;
-
   try {
-    // Find the user by username, but exclude the current logged-in user
     const user = await User.findOne({ username });
-
     if (user && user.username !== currentUser) {
-      res.status(200).json({ exists: true, name: user.name });
+      res.status(200).json({ exists: true, name: user.username });
     } else {
       res.status(404).json({ exists: false, message: 'No results' });
     }
   } catch (error) {
-    console.error('Error searching for user:', error);
     res.status(500).json({ message: 'Error searching for user' });
   }
 });
@@ -121,82 +115,59 @@ app.get('/search-user', async (req, res) => {
 // Send Message Route
 app.post('/send-message', async (req, res) => {
   const { sender, receiver, message } = req.body;
-
-  // Log incoming data
-  console.log('Send message data:', { sender, receiver, message });
-
-  if (!sender || !receiver || !message) {
-    return res.status(400).json({ message: 'Sender, receiver, and message are required' });
-  }
-
   try {
     const receiverExists = await User.findOne({ username: receiver });
-
-    if (!receiverExists) {
-      return res.status(400).json({ message: 'Receiver not found' });
-    }
-
+    if (!receiverExists) return res.status(400).json({ message: 'Receiver not found' });
     const newChat = new Chat({ sender, receiver, message });
-    await newChat.save(); // Save the message to the database
-
+    await newChat.save();
     res.status(201).json({ message: 'Message sent and stored in DB' });
   } catch (error) {
-    console.error('Error sending message:', error);
     res.status(500).json({ message: 'Error sending message' });
   }
 });
 
-
-
 // Get Chats for a User Route
 app.get('/chats', async (req, res) => {
   const { username } = req.query;
-
   try {
     const chats = await Chat.find({
       $or: [{ sender: username }, { receiver: username }],
-    }).sort('timestamp');
-
+    }).sort({ timestamp: 1 });
     res.status(200).json(chats);
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ message: 'Error fetching chats' });
+    res.status(500).json({ message: 'Error fetching chat history' });
   }
 });
 
-// Socket.IO Setup
+// Setup WebSocket Server
 const server = http.createServer(app);
-const io = new Server(server, {
-  cors: {
-    origin: "http://localhost:3000", // Replace with your frontend URL
-    methods: ["GET", "POST"]
-  }
-});
+const wss = new WebSocket.Server({ server });
 
-io.on('connection', (socket) => {
-  console.log('a user connected');
+wss.on('connection', (ws) => {
+  console.log('A user connected');
 
-  socket.on('join', (username) => {
-    console.log(`${username} joined`);
-    socket.join(username);
-  });
+  ws.on('message', async (message) => {
+    const data = JSON.parse(message);
+    const { sender, receiver, content } = data;
 
-  socket.on('send-message', (data) => {
-    io.to(data.receiver).emit('receive-message', {
-      sender: data.sender,
-      message: data.message,
-      timestamp: data.timestamp, // Include timestamp
+    // Store the message in the database
+    const chatMessage = new Chat({ sender, receiver, message: content });
+    await chatMessage.save();
+
+    // Broadcast the message to the receiver if connected
+    wss.clients.forEach((client) => {
+      if (client !== ws && client.readyState === WebSocket.OPEN) {
+        client.send(JSON.stringify({ sender, receiver, content }));
+      }
     });
   });
 
-  socket.on('disconnect', () => {
-    console.log('user disconnected');
+  ws.on('close', () => {
+    console.log('User disconnected');
   });
 });
 
-
-// Start the Server
 const PORT = process.env.PORT || 5000;
 server.listen(PORT, () => {
-  console.log(`Server is running on port ${PORT}`);
+  console.log(`Server running on port ${PORT}`);
 });
