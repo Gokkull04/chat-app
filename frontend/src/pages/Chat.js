@@ -1,137 +1,105 @@
-import React, { useState, useEffect, useRef } from 'react';
-import io from 'socket.io-client';
+import React, { useState, useEffect } from 'react';
 import axios from 'axios';
+import io from 'socket.io-client';
+import './ChatPage.css'; // Custom styles for additional tweaks
 
-// Replace with your server URL
-const SERVER_URL = 'http://localhost:5000';
+const socket = io("http://localhost:5000"); // Adjust the URL if needed
 
-const ChatPage = () => {
-  const [username, setUsername] = useState('');
-  const [currentUser, setCurrentUser] = useState('');
-  const [searchQuery, setSearchQuery] = useState('');
-  const [searchResults, setSearchResults] = useState([]);
-  const [selectedUser, setSelectedUser] = useState(null);
-  const [message, setMessage] = useState('');
+const ChatPage = ({ username }) => {
   const [messages, setMessages] = useState([]);
-  const socketRef = useRef();
+  const [message, setMessage] = useState('');
+  const [receiver, setReceiver] = useState(''); // Set this to the chat partner's username
 
   useEffect(() => {
-    // Get the username from localStorage or any other method you use to store it
-    const storedUser = localStorage.getItem('username');
-    if (storedUser) {
-      setUsername(storedUser);
-      setCurrentUser(storedUser);
-    }
+    socket.emit('join', username);
 
-    // Connect to Socket.IO server
-    socketRef.current = io(SERVER_URL);
-
-    // Join the current user to their own room
-    socketRef.current.emit('join', storedUser);
-
-    // Listen for incoming messages
-    socketRef.current.on('receive-message', (data) => {
-      setMessages((prevMessages) => [...prevMessages, data]);
+    socket.on('receive-message', (data) => {
+      setMessages((prevMessages) => [
+        ...prevMessages,
+        { sender: data.sender, message: data.message, timestamp: new Date() }
+      ]);
     });
 
-    return () => {
-      socketRef.current.disconnect();
+    // Fetch initial chat history
+    const fetchChats = async () => {
+      try {
+        const response = await axios.get(`/chats?username=${username}`);
+        setMessages(response.data);
+      } catch (error) {
+        console.error('Error fetching chats', error);
+      }
     };
-  }, []);
 
-  useEffect(() => {
-    if (selectedUser) {
-      // Fetch chats with the selected user
-      axios.get(`${SERVER_URL}/chats`, { params: { username: currentUser } })
-        .then(response => {
-          setMessages(response.data);
-        })
-        .catch(error => {
-          console.error('Error fetching chats:', error);
-        });
-    }
-  }, [selectedUser, currentUser]);
+    fetchChats();
 
-  const handleSearch = () => {
-    axios.get(`${SERVER_URL}/search-user`, { params: { username: searchQuery, currentUser } })
-      .then(response => {
-        if (response.data.exists) {
-          setSearchResults([{ username: searchQuery, name: response.data.name }]);
-        } else {
-          setSearchResults([]);
-        }
-      })
-      .catch(error => {
-        console.error('Error searching for user:', error);
+    return () => {
+      socket.off('receive-message');
+    };
+  }, [username]);
+
+  const handleSendMessage = async () => {
+    if (message.trim() === '') return;
+
+    try {
+      await axios.post('/send-message', {
+        sender: username,
+        receiver,
+        message
       });
-  };
 
-  const handleSendMessage = () => {
-    if (message.trim() && selectedUser) {
-      const msgData = { sender: currentUser, receiver: selectedUser.username, message };
-  
-      // Send message to server
-      axios.post(`${SERVER_URL}/send-message`, msgData)
-        .then(() => {
-          // Emit message to receiver via Socket.IO
-          socketRef.current.emit('send-message', msgData);
-          setMessage('');
-        })
-        .catch(error => {
-          console.error('Error sending message:', error);
-        });
+      socket.emit('send-message', { sender: username, receiver, message });
+      setMessages((prevMessages) => [
+        ...prevMessages,
+        { sender: username, message, timestamp: new Date() }
+      ]);
+      setMessage('');
+    } catch (error) {
+      console.error('Error sending message', error);
     }
   };
-  
-  
 
   return (
-    <div>
-      <h1>Chat Application</h1>
-      <div>
+    <div className="flex flex-col h-screen max-w-2xl mx-auto border border-gray-300 rounded-lg overflow-hidden">
+      {/* Header */}
+      <div className="bg-green-700 text-white p-4 flex items-center border-b border-gray-300">
+        <span className="text-lg font-semibold">Chat with {receiver}</span>
+        <div className="ml-auto flex space-x-4">
+          <i className="fas fa-video cursor-pointer"></i>
+          <i className="fas fa-phone cursor-pointer"></i>
+          <i className="fas fa-ellipsis-v cursor-pointer"></i>
+        </div>
+      </div>
+
+      {/* Messages */}
+      <div className="flex-1 p-4 bg-gray-100 overflow-y-auto">
+        {messages.map((msg, index) => (
+          <div
+            key={index}
+            className={`flex ${msg.sender === username ? 'justify-end' : 'justify-start'} mb-4`}
+          >
+            <div className={`p-2 rounded-lg ${msg.sender === username ? 'bg-green-500 text-white' : 'bg-white border border-gray-300'}`}>
+              <p>{msg.message}</p>
+              <span className="text-xs text-gray-500">{new Date(msg.timestamp).toLocaleTimeString()}</span>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* Input */}
+      <div className="bg-white border-t border-gray-300 p-4 flex items-center">
         <input
           type="text"
-          placeholder="Search for users..."
-          value={searchQuery}
-          onChange={(e) => setSearchQuery(e.target.value)}
+          value={message}
+          onChange={(e) => setMessage(e.target.value)}
+          placeholder="Type a message..."
+          className="flex-1 border border-gray-300 rounded-lg px-4 py-2"
         />
-        <button onClick={handleSearch}>Search</button>
-      </div>
-      <div>
-        {searchResults.length > 0 ? (
-          <ul>
-            {searchResults.map((user) => (
-              <li key={user.username} onClick={() => setSelectedUser(user)}>
-                {user.name}
-              </li>
-            ))}
-          </ul>
-        ) : (
-          <p>No results</p>
-        )}
-      </div>
-      <div>
-        {selectedUser && (
-          <div>
-            <h2>Chat with {selectedUser.name}</h2>
-            <div>
-              <ul>
-                {messages.map((msg, index) => (
-                  <li key={index}>
-                    <strong>{msg.sender}:</strong> {msg.message} <em>({new Date(msg.timestamp).toLocaleTimeString()})</em>
-                  </li>
-                ))}
-              </ul>
-            </div>
-            <input
-              type="text"
-              placeholder="Type a message..."
-              value={message}
-              onChange={(e) => setMessage(e.target.value)}
-            />
-            <button onClick={handleSendMessage}>Send</button>
-          </div>
-        )}
+        <button
+          onClick={handleSendMessage}
+          className="ml-4 bg-green-700 text-white px-4 py-2 rounded-lg"
+        >
+          Send
+        </button>
       </div>
     </div>
   );
